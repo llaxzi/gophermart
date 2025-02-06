@@ -1,0 +1,16 @@
+version: '3.8'
+services:
+  db:
+    image: postgres:15
+    container_name: db
+    environment:
+      POSTGRES_USER: dev
+      POSTGRES_PASSWORD: qwerty
+      POSTGRES_DB: gophermart
+    ports:
+      - "5433:5432" # Проброс порта для локального доступа
+    #volumes:
+      #- db_data:/var/lib/postgresql/data # Сохранение данных между перезапусками
+
+#volumes:
+  #db_data:
