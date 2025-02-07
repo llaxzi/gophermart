@@ -22,6 +22,8 @@ type Repository interface {
 	InsertOrder(ctx context.Context, order models.Order) error
 	SelectOrders(ctx context.Context, userLogin string) ([]models.OrderResponse, error)
 	SelectBalance(ctx context.Context, userLogin string) (models.Balance, error)
+	WithdrawBalance(ctx context.Context, withdrawal models.Withdrawal) error
+	SelectWithdrawals(ctx context.Context, userLogin string) ([]models.WithdrawalResponse, error)
 	Bootstrap(dsn string, steps int) error
 }
 
@@ -133,6 +135,61 @@ func (r *repository) SelectBalance(ctx context.Context, userLogin string) (model
 
 }
 
+func (r *repository) WithdrawBalance(ctx context.Context, withdrawal models.Withdrawal) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		if r.isPgConnErr(err) {
+			return apperrors.ErrPgConnExc
+		}
+		return err
+	}
+
+	defer func() {
+		if err != nil {
+			tx.Rollback()
+		}
+	}()
+
+	query := "UPDATE gophermart.users SET balance_current = balance_current - $1, balance_withdrawn = balance_withdrawn + $1 WHERE login = $2 AND balance_current >= $1"
+	res, err := tx.ExecContext(ctx, query, withdrawal.Sum, withdrawal.Login)
+	if err != nil {
+		if r.isPgConnErr(err) {
+			return apperrors.ErrPgConnExc
+		}
+		return err
+	}
+
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		if r.isPgConnErr(err) {
+			return apperrors.ErrPgConnExc
+		}
+		return err
+	}
+
+	if rowsAffected == 0 {
+		return apperrors.ErrNotEnoughFunds
+	}
+
+	query = "INSERT INTO gophermart.withdrawals (order_id, login, sum, processed_at)  VALUES ($1, $2, $3, $4)"
+	_, err = tx.ExecContext(ctx, query, withdrawal.Order, withdrawal.Login, withdrawal.Sum, withdrawal.ProcessedAt)
+	if err != nil {
+		if r.isPgConnErr(err) {
+			return apperrors.ErrPgConnExc
+		}
+		return err
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		if r.isPgConnErr(err) {
+			return apperrors.ErrPgConnExc
+		}
+		return err
+	}
+	return nil
+}
+
 func (r *repository) Bootstrap(dsn string, steps int) error {
 	m, err := migrate.New("file://internal/migrations", dsn)
 	if err != nil {
@@ -160,4 +217,32 @@ func (r *repository) isPgConnErr(err error) bool {
 func (r *repository) isPgUniqueViolationErr(err error) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UniqueViolation
+}
+
+func (r *repository) SelectWithdrawals(ctx context.Context, userLogin string) ([]models.WithdrawalResponse, error) {
+	query := "SELECT order_id,sum,processed_at FROM gophermart.withdrawals WHERE login = $1 ORDER BY processed_at DESC"
+	rows, err := r.db.QueryContext(ctx, query, userLogin)
+	defer rows.Close()
+	if err != nil {
+		if r.isPgConnErr(err) {
+			return nil, apperrors.ErrPgConnExc
+		}
+		return nil, err
+	}
+
+	var withdrawals []models.WithdrawalResponse
+	for rows.Next() {
+		var withdrawal models.WithdrawalResponse
+		var processedAt time.Time
+		if err = rows.Scan(&withdrawal.Order, &withdrawal.Sum, &processedAt); err != nil {
+			return withdrawals, err
+		}
+
+		withdrawal.ProcessedAt = processedAt.Format(time.RFC3339)
+		withdrawals = append(withdrawals, withdrawal)
+	}
+	if err = rows.Err(); err != nil {
+		return withdrawals, err
+	}
+	return withdrawals, nil
 }

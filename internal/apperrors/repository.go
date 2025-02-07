@@ -8,4 +8,5 @@ var (
 	ErrInvalidLP          = errors.New("wrong login or password")
 	ErrOrderInserted      = errors.New("you already loaded this order")
 	ErrOrderInsertedLogin = errors.New("someone else already loaded this order")
+	ErrNotEnoughFunds     = errors.New("not enough funds")
 )

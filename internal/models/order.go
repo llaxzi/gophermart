@@ -5,7 +5,7 @@ import (
 )
 
 type Order struct {
-	Number     int
+	Number     string
 	Login      string
 	Status     string
 	Accrual    *float64
@@ -13,7 +13,7 @@ type Order struct {
 }
 
 type OrderResponse struct {
-	Number     int      `json:"number"`
+	Number     string   `json:"number"`
 	Login      string   `json:"login,omitempty"`
 	Status     string   `json:"status"`
 	Accrual    *float64 `json:"accrual,omitempty"`

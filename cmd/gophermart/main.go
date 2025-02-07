@@ -15,7 +15,14 @@ import (
 
 func main() {
 
-	repo, err := repository.NewRepository("postgres://dev:qwerty@localhost:5433/gophermart?sslmode=disable")
+	// Получаем env переменные и флаги
+	parseVars()
+
+	// Временно выставляем вручную
+	databaseDSN = "postgres://dev:qwerty@localhost:5433/gophermart?sslmode=disable"
+	runAddr = ":8081"
+
+	repo, err := repository.NewRepository(databaseDSN)
 	if err != nil {
 		log.Fatalf("Failed to initialize repository: %v", err)
 		return
@@ -28,6 +35,7 @@ func main() {
 		return errors.Is(err, apperrors.ErrPgConnExc)
 	})
 
+	// Запуск миграции из приложения, при необходимости
 	/*err = repo.Bootstrap("postgres://dev:qwerty@localhost:5433/gophermart?sslmode=disable", 1)
 	if err != nil {
 		log.Fatalf("Failed to bootstrap repository: %v", err)
@@ -51,6 +59,8 @@ func main() {
 	auth.POST("/user/orders", userHandler.AddOrder)
 	gzip.GET("/user/orders", userHandler.GetOrders)
 	auth.GET("/user/balance", userHandler.GetBalance)
+	auth.POST("/user/balance/withdraw", userHandler.Withdraw)
+	gzip.GET("/user/balance/withdraw", userHandler.GetWithdrawals)
 
-	e.Logger.Fatal(e.Start(":8081"))
+	e.Logger.Fatal(e.Start(runAddr))
 }

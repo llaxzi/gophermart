@@ -10,7 +10,7 @@ CREATE TABLE gophermart.users(
 );
 
 CREATE TABLE gophermart.orders(
-    number BIGINT PRIMARY KEY,
+    number varchar(255) PRIMARY KEY,
     login VARCHAR(50),
     status gophermart.status,
     accrual double precision,
@@ -19,7 +19,7 @@ CREATE TABLE gophermart.orders(
 );
 
 CREATE TABLE gophermart.withdrawals(
-    order_id BIGINT PRIMARY KEY,
+    order_id varchar(255) PRIMARY KEY,
     login varchar(50),
     sum double precision,
     processed_at TIMESTAMP WITH TIME ZONE,

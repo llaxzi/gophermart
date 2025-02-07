@@ -2,18 +2,17 @@ package handler
 
 import (
 	"errors"
+	"github.com/ShiraazMoollatjie/goluhn"
 	"github.com/labstack/echo/v4"
 	"github.com/llaxzi/gophermart/internal/apperrors"
 	"github.com/llaxzi/gophermart/internal/models"
 	"github.com/llaxzi/gophermart/internal/repository"
 	"github.com/llaxzi/gophermart/internal/tokens"
 	"github.com/llaxzi/retryables"
-	"github.com/theplant/luhn"
 	"golang.org/x/crypto/bcrypt"
 	"io"
 	"log"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -24,6 +23,8 @@ type UserHandler interface {
 	AddOrder(ctx echo.Context) error
 	GetOrders(ctx echo.Context) error
 	GetBalance(ctx echo.Context) error
+	Withdraw(ctx echo.Context) error
+	GetWithdrawals(ctx echo.Context) error
 }
 
 func NewUserHandler(repo repository.Repository, tokenB tokens.TokenBuilder, retryer retryables.Retryer) UserHandler {
@@ -118,10 +119,7 @@ func (h *userHandler) AddOrder(ctx echo.Context) error {
 	if err != nil {
 		return ctx.JSON(http.StatusBadRequest, map[string]string{"error": apperrors.ErrInvalidJSON.Error()})
 	}
-	number, err := strconv.Atoi(strings.TrimSpace(string(body)))
-	if err != nil {
-		return ctx.JSON(http.StatusBadRequest, map[string]string{"error": apperrors.ErrInvalidJSON.Error()})
-	}
+	number := strings.TrimSpace(string(body))
 
 	login := ctx.Get("user_login").(string)
 	order := models.Order{
@@ -131,8 +129,8 @@ func (h *userHandler) AddOrder(ctx echo.Context) error {
 		UploadedAt: time.Now(),
 	}
 
-	if !luhn.Valid(number) {
-		return ctx.JSON(http.StatusUnprocessableEntity, map[string]string{"error": "invalid order number"})
+	if err = goluhn.Validate(order.Number); err != nil {
+		return ctx.JSON(http.StatusUnprocessableEntity, map[string]string{"error": apperrors.ErrInvalidOrder.Error()})
 	}
 
 	err = h.retryer.Retry(func() error {
@@ -141,10 +139,10 @@ func (h *userHandler) AddOrder(ctx echo.Context) error {
 
 	if err != nil {
 		if errors.Is(err, apperrors.ErrOrderInserted) {
-			return ctx.JSON(http.StatusOK, apperrors.ErrOrderInserted.Error())
+			return ctx.JSON(http.StatusOK, err.Error())
 		}
 		if errors.Is(err, apperrors.ErrOrderInsertedLogin) {
-			return ctx.JSON(http.StatusConflict, map[string]string{"error": apperrors.ErrOrderInsertedLogin.Error()})
+			return ctx.JSON(http.StatusConflict, map[string]string{"error": err.Error()})
 		}
 		log.Printf("Failed to add order: %v", err)
 		return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": apperrors.ErrServer.Error()})
@@ -152,6 +150,7 @@ func (h *userHandler) AddOrder(ctx echo.Context) error {
 	return ctx.JSON(http.StatusAccepted, "order accepted")
 }
 
+// GetOrders TODO: Пагинация
 func (h *userHandler) GetOrders(ctx echo.Context) error {
 	userLogin := ctx.Get("user_login").(string)
 	var orders []models.OrderResponse
@@ -167,7 +166,7 @@ func (h *userHandler) GetOrders(ctx echo.Context) error {
 	}
 
 	if len(orders) < 1 {
-		return ctx.JSON(http.StatusNoContent, map[string]string{"error": "no data"})
+		return ctx.JSON(http.StatusNoContent, map[string]string{"error": apperrors.ErrNoData.Error()})
 	}
 
 	return ctx.JSON(http.StatusOK, orders)
@@ -187,4 +186,54 @@ func (h *userHandler) GetBalance(ctx echo.Context) error {
 		return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": apperrors.ErrServer.Error()})
 	}
 	return ctx.JSON(http.StatusOK, balance)
+}
+
+func (h *userHandler) Withdraw(ctx echo.Context) error {
+	var withdrawal models.Withdrawal
+	err := ctx.Bind(&withdrawal)
+	if err != nil || withdrawal.Sum <= 0 {
+		return ctx.JSON(http.StatusBadRequest, map[string]string{"error": apperrors.ErrInvalidJSON.Error()})
+	}
+
+	if err = goluhn.Validate(withdrawal.Order); err != nil {
+		return ctx.JSON(http.StatusUnprocessableEntity, map[string]string{"error": apperrors.ErrInvalidOrder.Error()})
+	}
+
+	withdrawal.Login = ctx.Get("user_login").(string)
+	withdrawal.ProcessedAt = time.Now()
+
+	err = h.retryer.Retry(func() error {
+		return h.repo.WithdrawBalance(ctx.Request().Context(), withdrawal)
+	})
+
+	if err != nil {
+		if errors.Is(err, apperrors.ErrNotEnoughFunds) {
+			return ctx.JSON(http.StatusPaymentRequired, map[string]string{"error": err.Error()})
+		}
+		return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": apperrors.ErrServer.Error()})
+	}
+	return ctx.JSON(http.StatusOK, "withdraw successfully")
+}
+
+// GetWithdrawals TODO: Пагинация
+func (h *userHandler) GetWithdrawals(ctx echo.Context) error {
+	userLogin := ctx.Get("user_login").(string)
+	var withdrawals []models.WithdrawalResponse
+
+	err := h.retryer.Retry(func() error {
+		var err error
+		withdrawals, err = h.repo.SelectWithdrawals(ctx.Request().Context(), userLogin)
+		return err
+	})
+	if err != nil {
+		log.Printf("Failed to get orders: %v", err)
+		return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": apperrors.ErrServer.Error()})
+	}
+
+	if len(withdrawals) < 1 {
+		return ctx.JSON(http.StatusNoContent, map[string]string{"error": apperrors.ErrNoData.Error()})
+	}
+
+	return ctx.JSON(http.StatusOK, withdrawals)
+
 }
