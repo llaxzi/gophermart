@@ -161,13 +161,8 @@ func (p *processor) worker(ctx context.Context) {
 		case order := <-p.ordersCh:
 			// Ждём, если нужно
 			p.wait()
-			fmt.Println("Worker skipped wait()")
 
 			resp, err := client.R().SetResult(&order).Get(p.accrualAddr + "/api/orders/" + order.Number)
-
-			fmt.Printf("Response status: %d, error: %v\n", resp.StatusCode(), err)
-			fmt.Printf("Body: %v\n", resp.Body())
-			fmt.Printf("Order after response: %v\n", order)
 
 			if err != nil {
 				p.errCh <- fmt.Errorf("failed to send request: %w", err)
@@ -181,14 +176,12 @@ func (p *processor) worker(ctx context.Context) {
 				if err != nil {
 					p.errCh <- fmt.Errorf("failed to atoi: %w", err)
 					p.returnedOrdersCh <- order
-					fmt.Printf("Failed to atoi: %v\n", err)
 					continue
 				}
 				if retryAfter > 0 {
 					p.setDelay(time.Now().Add(time.Duration(retryAfter) * time.Second))
 				}
 				p.returnedOrdersCh <- order
-				fmt.Printf("Got Retry-After: %v\n", retryAfter)
 				continue
 			}
 
@@ -203,17 +196,14 @@ func (p *processor) worker(ctx context.Context) {
 				continue
 			}
 
-			fmt.Printf("Updating order in DB: Number=%s, Status=%s, Accrual=%v\n", order.Number, order.Status, *order.Accrual)
 			err = p.retryer.Retry(func() error {
 				return p.repo.UpdateOrder(ctx, order)
 			})
 			if err != nil {
 				p.errCh <- fmt.Errorf("failed to update order: %w", err)
 				p.returnedOrdersCh <- order
-				fmt.Printf("Failed to update order: %v\n", err)
 				continue
 			}
-			fmt.Printf("Updated order: %v\n", order)
 		case <-ctx.Done():
 			return
 		}

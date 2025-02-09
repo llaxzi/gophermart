@@ -24,9 +24,9 @@ func main() {
 	parseVars()
 
 	// Временно выставляем вручную
-	databaseDSN = "postgres://dev:qwerty@localhost:5433/gophermart?sslmode=disable"
+	/*databaseDSN = "postgres://dev:qwerty@localhost:5433/gophermart?sslmode=disable"
 	runAddr = ":8081"
-	accrualAddr = "http://localhost:8080"
+	accrualAddr = "http://localhost:8080"*/
 
 	repo, err := repository.NewRepository(databaseDSN)
 	if err != nil {
@@ -42,11 +42,11 @@ func main() {
 	})
 
 	// Запуск миграции из сервиса, при необходимости
-	/*err = repo.Bootstrap(databaseDSN, 1)
+	err = repo.Bootstrap(databaseDSN, 1)
 	if err != nil {
 		log.Fatalf("Failed to bootstrap repository: %v", err)
 		return
-	}*/
+	}
 
 	tokenB := tokens.NewTokenBuilder([]byte("key"), time.Hour*3)
 
