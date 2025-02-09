@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5/pgconn"
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/lib/pq"
 	"github.com/llaxzi/gophermart/internal/apperrors"
 	"github.com/llaxzi/gophermart/internal/models"
 	"time"
@@ -24,6 +25,9 @@ type Repository interface {
 	SelectBalance(ctx context.Context, userLogin string) (models.Balance, error)
 	WithdrawBalance(ctx context.Context, withdrawal models.Withdrawal) error
 	SelectWithdrawals(ctx context.Context, userLogin string) ([]models.WithdrawalResponse, error)
+	SelectNewOrders(ctx context.Context) ([]models.Order, error)
+	UpdateOrder(ctx context.Context, order models.Order) error
+	ResetStatus(ctx context.Context, orderNumber string) error
 	Bootstrap(dsn string, steps int) error
 }
 
@@ -188,6 +192,122 @@ func (r *repository) WithdrawBalance(ctx context.Context, withdrawal models.With
 		return err
 	}
 	return nil
+}
+
+func (r *repository) SelectNewOrders(ctx context.Context) ([]models.Order, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		if r.isPgConnErr(err) {
+			return nil, apperrors.ErrPgConnExc
+		}
+		return nil, err
+	}
+
+	defer func() {
+		if err != nil {
+			tx.Rollback()
+		}
+	}()
+
+	query := "SELECT number,login, status, accrual FROM gophermart.orders WHERE status = 'NEW' ORDER BY uploaded_at FOR UPDATE SKIP LOCKED"
+	rows, err := tx.QueryContext(ctx, query)
+	defer rows.Close()
+	if err != nil {
+		if r.isPgConnErr(err) {
+			return nil, apperrors.ErrPgConnExc
+		}
+		return nil, err
+	}
+
+	var orders []models.Order
+	var orderNumbers []string
+	for rows.Next() {
+		var order models.Order
+		if err = rows.Scan(&order.Number, &order.Login, &order.Status, &order.Accrual); err != nil {
+			return orders, err
+		}
+		orders = append(orders, order)
+		orderNumbers = append(orderNumbers, order.Number)
+	}
+	if err = rows.Err(); err != nil {
+		return orders, err
+	}
+
+	if len(orders) < 0 {
+		return orders, nil
+	}
+
+	updateQuery := "UPDATE gophermart.orders SET status = 'PROCESSING' where number = ANY($1)"
+	_, err = tx.ExecContext(ctx, updateQuery, pq.Array(orderNumbers))
+	if err != nil {
+		if r.isPgConnErr(err) {
+			return nil, apperrors.ErrPgConnExc
+		}
+		return orders, err
+	}
+
+	if err = tx.Commit(); err != nil {
+		if r.isPgConnErr(err) {
+			return nil, apperrors.ErrPgConnExc
+		}
+		return nil, err
+	}
+
+	return orders, nil
+}
+
+func (r *repository) UpdateOrder(ctx context.Context, order models.Order) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		if r.isPgConnErr(err) {
+			return apperrors.ErrPgConnExc
+		}
+		return err
+	}
+
+	defer func() {
+		if err != nil {
+			tx.Rollback()
+		}
+	}()
+
+	query := "UPDATE gophermart.orders SET status = $1, accrual = $2 WHERE number = $3"
+	_, err = tx.ExecContext(ctx, query, order.Status, order.Accrual, order.Number)
+	if err != nil {
+		if r.isPgConnErr(err) {
+			return apperrors.ErrPgConnExc
+		}
+		return err
+	}
+
+	if order.Status == "PROCESSED" {
+		query = "UPDATE gophermart.users SET balance_current = balance_current + $1 WHERE login = $2 RETURNING balance_current"
+		_, err = tx.ExecContext(ctx, query, order.Accrual, order.Login)
+		if err != nil {
+			if r.isPgConnErr(err) {
+				return apperrors.ErrPgConnExc
+			}
+			return err
+		}
+	}
+
+	if err = tx.Commit(); err != nil {
+		if r.isPgConnErr(err) {
+			return apperrors.ErrPgConnExc
+		}
+		return err
+	}
+
+	return nil
+}
+
+func (r *repository) ResetStatus(ctx context.Context, orderNumber string) error {
+	query := "UPDATE gophermart.orders SET status = 'NEW' WHERE number = $1"
+	_, err := r.db.ExecContext(ctx, query, orderNumber)
+	if r.isPgConnErr(err) {
+		return apperrors.ErrPgConnExc
+	}
+	return err
 }
 
 func (r *repository) Bootstrap(dsn string, steps int) error {
