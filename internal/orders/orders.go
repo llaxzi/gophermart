@@ -22,13 +22,14 @@ type Processor interface {
 func NewProcessor(repo repository.Repository, retryer retryables.Retryer, accrualAddr string,
 	getInterval int, workerCount int) Processor {
 	p := &processor{
-		repo:        repo,
-		retryer:     retryer,
-		accrualAddr: accrualAddr,
-		ordersCh:    make(chan models.Order, 50),
-		errCh:       make(chan error, 50),
-		getInterval: getInterval,
-		workerCount: workerCount,
+		repo:             repo,
+		retryer:          retryer,
+		accrualAddr:      accrualAddr,
+		ordersCh:         make(chan models.Order, 50),
+		returnedOrdersCh: make(chan models.Order, 50),
+		errCh:            make(chan error, 50),
+		getInterval:      getInterval,
+		workerCount:      workerCount,
 	}
 	return p
 }

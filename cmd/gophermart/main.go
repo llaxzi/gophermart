@@ -24,9 +24,9 @@ func main() {
 	parseVars()
 
 	// Временно выставляем вручную
-	/*databaseDSN = "postgres://dev:qwerty@localhost:5433/gophermart?sslmode=disable"
+	databaseDSN = "postgres://dev:qwerty@localhost:5433/gophermart?sslmode=disable"
 	runAddr = ":8081"
-	accrualAddr = "http://localhost:8080"*/
+	accrualAddr = "http://localhost:8080"
 
 	repo, err := repository.NewRepository(databaseDSN)
 	if err != nil {
