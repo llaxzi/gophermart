@@ -98,13 +98,13 @@ func (r *repository) InsertOrder(ctx context.Context, order models.Order) error 
 func (r *repository) SelectOrders(ctx context.Context, userLogin string) ([]models.OrderResponse, error) {
 	query := "SELECT number,status,accrual,uploaded_at FROM gophermart.orders WHERE login = $1 ORDER BY uploaded_at DESC"
 	rows, err := r.db.QueryContext(ctx, query, userLogin)
-	defer rows.Close()
 	if err != nil {
 		if r.isPgConnErr(err) {
 			return nil, apperrors.ErrPgConnExc
 		}
 		return nil, err
 	}
+	defer rows.Close()
 
 	var orders []models.OrderResponse
 	for rows.Next() {
@@ -211,13 +211,13 @@ func (r *repository) SelectNewOrders(ctx context.Context) ([]models.Order, error
 
 	query := "SELECT number,login, status, accrual FROM gophermart.orders WHERE status = 'NEW' ORDER BY uploaded_at FOR UPDATE SKIP LOCKED"
 	rows, err := tx.QueryContext(ctx, query)
-	defer rows.Close()
 	if err != nil {
 		if r.isPgConnErr(err) {
 			return nil, apperrors.ErrPgConnExc
 		}
 		return nil, err
 	}
+	defer rows.Close()
 
 	var orders []models.Order
 	var orderNumbers []string
@@ -233,7 +233,7 @@ func (r *repository) SelectNewOrders(ctx context.Context) ([]models.Order, error
 		return orders, err
 	}
 
-	if len(orders) < 0 {
+	if len(orders) < 1 {
 		return orders, nil
 	}
 
@@ -342,13 +342,13 @@ func (r *repository) isPgUniqueViolationErr(err error) bool {
 func (r *repository) SelectWithdrawals(ctx context.Context, userLogin string) ([]models.WithdrawalResponse, error) {
 	query := "SELECT order_id,sum,processed_at FROM gophermart.withdrawals WHERE login = $1 ORDER BY processed_at DESC"
 	rows, err := r.db.QueryContext(ctx, query, userLogin)
-	defer rows.Close()
 	if err != nil {
 		if r.isPgConnErr(err) {
 			return nil, apperrors.ErrPgConnExc
 		}
 		return nil, err
 	}
+	defer rows.Close()
 
 	var withdrawals []models.WithdrawalResponse
 	for rows.Next() {

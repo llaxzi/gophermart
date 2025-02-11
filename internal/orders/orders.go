@@ -106,7 +106,7 @@ func (p *processor) ProcessOrders(ctx context.Context) {
 		for {
 			select {
 			case err := <-p.errCh:
-				log.Printf(err.Error())
+				log.Println(err.Error())
 			case <-ctx.Done():
 				return
 			}
