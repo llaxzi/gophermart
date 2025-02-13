@@ -6,7 +6,7 @@ import (
 	"github.com/go-resty/resty/v2"
 	"github.com/llaxzi/gophermart/internal/models"
 	"github.com/llaxzi/gophermart/internal/repository"
-	"github.com/llaxzi/retryables"
+	"github.com/llaxzi/retryables/v2"
 	"log"
 	"net/http"
 	"strconv"
@@ -19,8 +19,8 @@ type Processor interface {
 	ProcessOrders(ctx context.Context)
 }
 
-func NewProcessor(repo repository.Repository, retryer retryables.Retryer, accrualAddr string,
-	getInterval int, workerCount int) Processor {
+func NewProcessor(repo repository.Repository, retryer *retryables.Retryer, accrualAddr string,
+	getInterval time.Duration, workerCount int) Processor {
 	p := &processor{
 		repo:             repo,
 		retryer:          retryer,
@@ -36,19 +36,19 @@ func NewProcessor(repo repository.Repository, retryer retryables.Retryer, accrua
 
 type processor struct {
 	repo             repository.Repository
-	retryer          retryables.Retryer
+	retryer          *retryables.Retryer
 	accrualAddr      string
 	ordersCh         chan models.Order
 	returnedOrdersCh chan models.Order
 	errCh            chan error
 	retryAfter       atomic.Value
-	getInterval      int
+	getInterval      time.Duration
 	workerCount      int
 }
 
-// GetNewOrders - generator
+// getNewOrders - generator
 func (p *processor) getNewOrders(ctx context.Context) {
-	ticker := time.NewTicker(time.Duration(p.getInterval) * time.Second)
+	ticker := time.NewTicker(p.getInterval)
 	defer ticker.Stop()
 
 	for {
@@ -131,7 +131,6 @@ func (p *processor) ProcessOrders(ctx context.Context) {
 
 }
 
-// TODO: потенциальная самоблокировка
 func (p *processor) worker(ctx context.Context) {
 	client := resty.New()
 	// Настройка retry
@@ -185,9 +184,8 @@ func (p *processor) worker(ctx context.Context) {
 				continue
 			}
 
-			if resp.StatusCode() == http.StatusNoContent {
-				fmt.Printf("Skipping order: %v - No content\n", order)
-				p.resetOrderStatus(ctx, order.Number)
+			if resp.StatusCode() != http.StatusOK {
+				p.returnedOrdersCh <- order
 				continue
 			}
 
@@ -209,6 +207,8 @@ func (p *processor) worker(ctx context.Context) {
 		}
 	}
 }
+
+// internal
 
 func (p *processor) setDelay(after time.Time) {
 	p.retryAfter.Store(after)

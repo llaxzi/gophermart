@@ -8,11 +8,12 @@ import (
 	"github.com/llaxzi/gophermart/internal/models"
 	"github.com/llaxzi/gophermart/internal/repository"
 	"github.com/llaxzi/gophermart/internal/tokens"
-	"github.com/llaxzi/retryables"
+	"github.com/llaxzi/retryables/v2"
 	"golang.org/x/crypto/bcrypt"
 	"io"
 	"log"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -27,14 +28,14 @@ type UserHandler interface {
 	GetWithdrawals(ctx echo.Context) error
 }
 
-func NewUserHandler(repo repository.Repository, tokenB tokens.TokenBuilder, retryer retryables.Retryer) UserHandler {
+func NewUserHandler(repo repository.Repository, tokenB tokens.TokenBuilder, retryer *retryables.Retryer) UserHandler {
 	return &userHandler{repo, tokenB, retryer}
 }
 
 type userHandler struct {
 	repo    repository.Repository
 	tokenB  tokens.TokenBuilder
-	retryer retryables.Retryer
+	retryer *retryables.Retryer
 }
 
 func (h *userHandler) Register(ctx echo.Context) error {
@@ -52,13 +53,6 @@ func (h *userHandler) Register(ctx echo.Context) error {
 	}
 	user.Password = string(hash)
 
-	// Генерируем JWT токен
-	token, err := h.tokenB.BuildJWTString(user.Login)
-	if err != nil {
-		log.Printf("Failed to generate token: %v for user: %v", err, user.Login)
-		return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": apperrors.ErrServer.Error()})
-	}
-
 	err = h.retryer.Retry(func() error {
 		return h.repo.InsertUser(ctx.Request().Context(), user)
 	})
@@ -68,6 +62,13 @@ func (h *userHandler) Register(ctx echo.Context) error {
 			return ctx.JSON(http.StatusConflict, map[string]string{"error": err.Error()})
 		}
 		log.Printf("Regiter failed: %v", err)
+		return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": apperrors.ErrServer.Error()})
+	}
+
+	// Генерируем JWT токен
+	token, err := h.tokenB.BuildJWTString(user.Login)
+	if err != nil {
+		log.Printf("Failed to generate token: %v for user: %v", err, user.Login)
 		return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": apperrors.ErrServer.Error()})
 	}
 
@@ -116,10 +117,15 @@ func (h *userHandler) Login(ctx echo.Context) error {
 func (h *userHandler) AddOrder(ctx echo.Context) error {
 
 	body, err := io.ReadAll(ctx.Request().Body)
-	if err != nil {
+	if err != nil || len(body) == 0 {
 		return ctx.JSON(http.StatusBadRequest, map[string]string{"error": apperrors.ErrInvalidJSON.Error()})
 	}
 	number := strings.TrimSpace(string(body))
+	// Тело запроса должно состоять только из цифр
+	numericRegex := regexp.MustCompile(`^\d+$`)
+	if !numericRegex.MatchString(number) {
+		return ctx.JSON(http.StatusBadRequest, map[string]string{"error": apperrors.ErrInvalidJSON.Error()})
+	}
 
 	login := ctx.Get("user_login").(string)
 	order := models.Order{

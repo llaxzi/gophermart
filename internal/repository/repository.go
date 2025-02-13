@@ -303,6 +303,7 @@ func (r *repository) UpdateOrder(ctx context.Context, order models.Order) error 
 
 func (r *repository) ResetStatus(ctx context.Context, orderNumber string) error {
 	query := "UPDATE gophermart.orders SET status = 'NEW' WHERE number = $1"
+
 	_, err := r.db.ExecContext(ctx, query, orderNumber)
 	if r.isPgConnErr(err) {
 		return apperrors.ErrPgConnExc

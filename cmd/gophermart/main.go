@@ -10,7 +10,7 @@ import (
 	"github.com/llaxzi/gophermart/internal/orders"
 	"github.com/llaxzi/gophermart/internal/repository"
 	"github.com/llaxzi/gophermart/internal/tokens"
-	"github.com/llaxzi/retryables"
+	"github.com/llaxzi/retryables/v2"
 	"log"
 	"os"
 	"os/signal"
@@ -34,7 +34,7 @@ func main() {
 		return
 	}
 
-	retryer := retryables.NewRetryer()
+	retryer := retryables.NewRetryer(os.Stdout)
 	retryer.SetCount(3)
 	retryer.SetDelay(1, 2)
 	retryer.SetConditionFunc(func(err error) bool {
@@ -68,7 +68,7 @@ func main() {
 	auth.POST("/api/user/balance/withdraw", userHandler.Withdraw)
 	gzip.GET("/api/user/withdrawals", userHandler.GetWithdrawals)
 
-	processor := orders.NewProcessor(repo, retryer, accrualAddr, 1, 5)
+	processor := orders.NewProcessor(repo, retryer, accrualAddr, 1*time.Second, 5)
 	ctx, cancel := context.WithCancel(context.Background())
 	go processor.ProcessOrders(ctx)
 
