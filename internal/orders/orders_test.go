@@ -42,8 +42,8 @@ func TestGetNewOrders(t *testing.T) {
 	defer cancel()
 
 	orders := []models.Order{
-		{"7458", "test1", "NEW", nil, time.Now()},
-		{"7459", "test2", "PROCESSING", nil, time.Now()},
+		{Number: "7458", Login: "test1", Status: "NEW", Accrual: nil, UploadedAt: time.Now()},
+		{Number: "7459", Login: "test2", Status: "PROCESSING", Accrual: nil, UploadedAt: time.Now()},
 	}
 
 	repo.EXPECT().SelectNewOrders(gomock.Any()).
