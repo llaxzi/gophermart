@@ -150,11 +150,11 @@ func (r *repository) WithdrawBalance(ctx context.Context, withdrawal models.With
 
 	defer func() {
 		if err != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 		}
 	}()
 
-	query := "UPDATE gophermart.users SET balance_current = balance_current - $1, balance_withdrawn = balance_withdrawn + $1 WHERE login = $2 AND balance_current >= $1"
+	query := "UPDATE gophermart.users SET balance_current = balance_current - $1, balance_withdrawn = balance_withdrawn + $1 WHERE login = $2 AND balance_current >= $1 RETURNING balance_current"
 	res, err := tx.ExecContext(ctx, query, withdrawal.Sum, withdrawal.Login)
 	if err != nil {
 		if r.isPgConnErr(err) {
@@ -172,7 +172,8 @@ func (r *repository) WithdrawBalance(ctx context.Context, withdrawal models.With
 	}
 
 	if rowsAffected == 0 {
-		return apperrors.ErrNotEnoughFunds
+		err = apperrors.ErrNotEnoughFunds
+		return err
 	}
 
 	query = "INSERT INTO gophermart.withdrawals (order_id, login, sum, processed_at)  VALUES ($1, $2, $3, $4)"
@@ -230,20 +231,20 @@ func (r *repository) SelectNewOrders(ctx context.Context) ([]models.Order, error
 		orderNumbers = append(orderNumbers, order.Number)
 	}
 	if err = rows.Err(); err != nil {
-		return orders, err
+		return nil, err
 	}
 
-	if len(orders) < 1 {
-		return orders, nil
-	}
-
-	updateQuery := "UPDATE gophermart.orders SET status = 'PROCESSING' where number = ANY($1)"
-	_, err = tx.ExecContext(ctx, updateQuery, pq.Array(orderNumbers))
-	if err != nil {
-		if r.isPgConnErr(err) {
-			return nil, apperrors.ErrPgConnExc
+	if len(orders) == 0 {
+		orders = []models.Order{}
+	} else {
+		updateQuery := "UPDATE gophermart.orders SET status = 'PROCESSING' where number = ANY($1)"
+		_, err = tx.ExecContext(ctx, updateQuery, pq.Array(orderNumbers))
+		if err != nil {
+			if r.isPgConnErr(err) {
+				return nil, apperrors.ErrPgConnExc
+			}
+			return orders, err
 		}
-		return orders, err
 	}
 
 	if err = tx.Commit(); err != nil {
